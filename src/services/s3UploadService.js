@@ -11,8 +11,10 @@ import { getAWSConfig } from '../config/index.js';
  */
 export class S3UploadService {
   constructor() {
-    this.s3Client = new S3Client(getAWSConfig());
+    const awsConfig = getAWSConfig();
+    this.s3Client = new S3Client(awsConfig);
     this.bucketName = process.env.AWS_S3_BUCKET;
+    this.region = awsConfig.region || process.env.AWS_REGION || 'us-east-1';
   }
 
   /**
@@ -49,15 +51,14 @@ export class S3UploadService {
       await this.s3Client.send(command);
 
       // Construct URL based on visibility
+      // Handle us-east-1 specially (no region in URL) vs other regions
       let fileUrl;
-      if (isPublic) {
-        // Public URL
-        const region = process.env.AWS_REGION || 'us-east-1';
-        fileUrl = `https://${this.bucketName}.s3.${region}.amazonaws.com/${s3Key}`;
+      if (this.region === 'us-east-1') {
+        // us-east-1 uses a different endpoint format (no region in URL)
+        fileUrl = `https://${this.bucketName}.s3.amazonaws.com/${s3Key}`;
       } else {
-        // For private files, construct the S3 URL (requires authentication to access)
-        const region = process.env.AWS_REGION || 'us-east-1';
-        fileUrl = `https://${this.bucketName}.s3.${region}.amazonaws.com/${s3Key}`;
+        // Other regions include the region in the URL
+        fileUrl = `https://${this.bucketName}.s3.${this.region}.amazonaws.com/${s3Key}`;
       }
 
       logger.info('File uploaded to S3 successfully', { 
@@ -80,7 +81,17 @@ export class S3UploadService {
         uploadedAt: new Date().toISOString()
       };
     } catch (error) {
-      logger.error('S3 upload error', { error: error.message, stack: error.stack });
+      // Debug: Log AWS region used when error occurs
+      console.error('AWS Region used:', this.region);
+      
+      logger.error('S3 upload error', { 
+        error: error.message, 
+        stack: error.stack,
+        region: this.region,
+        bucket: this.bucketName
+      });
+      
+      
       throw new Error(`Failed to upload file to S3: ${error.message}`);
     }
   }

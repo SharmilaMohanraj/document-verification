@@ -35,8 +35,10 @@ export function hasAWSCredentials() {
  * @returns {Object} AWS client configuration
  */
 export function getAWSConfig() {
+  const region = config.aws.region || process.env.AWS_REGION || 'us-east-1';
+  
   const awsConfig = {
-    region: config.aws.region
+    region: region
   };
 
   // Only include credentials if provided via environment variables

@@ -1,5 +1,5 @@
-// CommonJS wrapper for ES module exports
-// This allows the utility to be imported in CommonJS projects (like mlbindia-backend)
+// ES module exports for document verification utility
+// This module can be imported using dynamic import() in CommonJS projects
 
 /**
  * Verify identity document
@@ -80,7 +80,7 @@ async function getPresignedUrl(s3Key, expiresIn = 3600) {
   return await uploadService.getPresignedUrl(s3Key, expiresIn);
 }
 
-module.exports = {
+export {
   verifyIdentity,
   uploadToS3,
   deleteFromS3,
