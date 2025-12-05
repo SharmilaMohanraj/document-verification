@@ -1,15 +1,16 @@
 import { writeFile, mkdir, readFile, unlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
+import { tmpdir } from 'os';
 import { logger } from '../utils/logger.js';
 
 /**
- * Service for downloading and managing image files
+ * Service for downloading and managing image files (HTTP/HTTPS URLs)
  */
 export class FileDownloadService {
   constructor() {
-    // Create files directory if it doesn't exist
-    this.filesDir = './files';
+    // Use /tmp for serverless compatibility, ./files for local
+    this.filesDir = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME ? tmpdir() : './files';
     this._ensureFilesDirectory();
   }
 
@@ -18,6 +19,11 @@ export class FileDownloadService {
    */
   async _ensureFilesDirectory() {
     try {
+      // /tmp always exists on serverless, skip creation
+      if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+        return;
+      }
+      
       if (!existsSync(this.filesDir)) {
         await mkdir(this.filesDir, { recursive: true });
         logger.info('Created files directory', { path: this.filesDir });

@@ -1,10 +1,11 @@
 node_modules/
-.env
+package-lock.json
 *.log
+logs/
+.env
 .DS_Store
 dist/
 build/
 coverage/
 files/
 !files/.gitkeep
-

@@ -1,13 +1,9 @@
 {
-  "name": "doc-verify-service",
+  "name": "document-verification-utility",
   "version": "1.0.0",
-  "description": "Identity verification service using AWS Textract and Rekognition",
-  "main": "src/server.js",
+  "description": "Identity verification utility using AWS Textract and Rekognition",
+  "main": "index.js",
   "type": "module",
-  "scripts": {
-    "start": "node src/server.js",
-    "dev": "node --watch src/server.js"
-  },
   "keywords": [
     "identity-verification",
     "aws-textract",
@@ -16,14 +12,11 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@aws-sdk/client-textract": "^3.490.0",
     "@aws-sdk/client-rekognition": "^3.490.0",
-    "express": "^4.18.2",
-    "winston": "^3.11.0",
-    "dotenv": "^16.3.1"
-  },
-  "devDependencies": {
-    "@types/express": "^4.17.21"
+    "@aws-sdk/client-s3": "^3.943.0",
+    "@aws-sdk/client-textract": "^3.490.0",
+    "@aws-sdk/s3-request-presigner": "^3.943.0",
+    "uuid": "^13.0.0",
+    "winston": "^3.11.0"
   }
 }
-

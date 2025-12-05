@@ -1,7 +1,5 @@
-import dotenv from 'dotenv';
-
-// Load environment variables from .env file
-dotenv.config();
+// Note: dotenv.config() should be called by the parent application (mlbindia-backend)
+// Environment variables are read from process.env
 
 /**
  * Application configuration

@@ -1,36 +1,28 @@
-# Identity Verification Service
+# Document Verification Utility
 
-A production-grade Node.js + Express backend service for identity document verification using AWS Textract and Rekognition.
+Identity verification utility using AWS Textract and Rekognition for document verification and S3 file operations.
 
 ## Features
 
-- ✅ Single API endpoint: `POST /verify-identity`
-- ✅ AWS Textract integration for document text extraction
-- ✅ AWS Rekognition integration for face comparison
-- ✅ Support for Aadhaar, Passport, and Other document types
-- ✅ Structured logging with Winston
-- ✅ Modular, scalable architecture
-- ✅ Comprehensive error handling
-- ✅ Request validation
+- Identity document verification (Aadhaar/Passport)
+- Personal information matching
+- Face comparison using AWS Rekognition
+- S3 file upload and download
+- Presigned URL generation
+- ID number format validation
 
-## Project Structure
+## Installation
 
+### From GitHub
+
+```bash
+npm install git+https://github.com/YOUR_USERNAME/document-verification.git
 ```
-src/
-├── controllers/          # Request handlers
-│   └── verificationController.js
-├── routes/              # Express routes
-│   └── verificationRoutes.js
-├── services/            # Business logic
-│   ├── textractService.js
-│   ├── rekognitionService.js
-│   └── verificationService.js
-├── utils/               # Utility functions
-│   ├── logger.js
-│   └── responseBuilder.js
-├── types/               # Type definitions (JSDoc)
-│   └── requestTypes.js
-└── server.js            # Express app setup
+
+### From Local File
+
+```bash
+npm install file:../document-verification
 ```
 
 ## Prerequisites
@@ -39,180 +31,143 @@ src/
 - AWS Account with access to:
   - AWS Textract
   - AWS Rekognition
+  - AWS S3
 - AWS Credentials configured (via environment variables or AWS credentials file)
 
-## Installation
-
-1. Clone the repository
-2. Install dependencies:
-
-```bash
-npm install
-```
-
-3. Configure environment variables:
-
-Create a `.env` file (optional - can also use AWS credentials file):
+## Environment Variables
 
 ```env
 AWS_REGION=us-east-1
 AWS_ACCESS_KEY_ID=your-access-key-id
 AWS_SECRET_ACCESS_KEY=your-secret-access-key
-PORT=3000
+AWS_S3_BUCKET=your-bucket-name
 LOG_LEVEL=info
 ```
 
 ## Usage
 
-### Start the server:
+### Identity Verification
 
-```bash
-npm start
+```javascript
+const { verifyIdentity } = require('document-verification-utility');
+
+const result = await verifyIdentity({
+  name: 'John Doe',
+  dob: '1990-01-01', // Date object or ISO string
+  identityCardNumber: '1234 5678 9012',
+  photoUrl: 'https://s3.../photo.jpg', // S3 URL or HTTP URL
+  identityUrls: ['https://s3.../aadhaar.jpg'], // Array of S3/HTTP URLs
+  type: 'aadhaar' // or 'passport'
+});
+
+// Result structure:
+// {
+//   isDocumentTypeMatched: true,
+//   isNameMatched: true,
+//   isDOBMatched: true,
+//   isIdentityCardNumberMatched: true,
+//   isIdentityCardNumberFormatValid: true,
+//   isFaceMatched: true,
+//   confidence: 97.8,
+//   isVerification: true,
+//   message: "Verification complete"
+// }
 ```
 
-Or for development with auto-reload:
+### S3 Upload
 
-```bash
-npm run dev
+```javascript
+const { uploadToS3, getPresignedUrl } = require('document-verification-utility');
+
+// Upload file
+const result = await uploadToS3(
+  fileBuffer,           // Buffer
+  'document.pdf',       // Original filename
+  'documents',          // S3 folder (optional, default: 'documents')
+  'application/pdf',    // Content type (optional, default: 'application/octet-stream')
+  false                 // isPublic (optional, default: false)
+);
+
+// Result structure:
+// {
+//   success: true,
+//   url: 'https://bucket.s3.region.amazonaws.com/documents/file_xxx.pdf',
+//   key: 'documents/file_xxx.pdf',
+//   bucket: 'your-bucket',
+//   fileName: 'file_xxx.pdf',
+//   originalName: 'document.pdf',
+//   size: 1024000,
+//   contentType: 'application/pdf',
+//   isPublic: false,
+//   uploadedAt: '2024-01-01T00:00:00.000Z'
+// }
+
+// Get presigned URL for private files
+const presignedUrl = await getPresignedUrl(result.key, 3600); // Expires in 1 hour
 ```
 
-### API Endpoint
+### S3 Delete
 
-**POST** `/verify-identity`
+```javascript
+const { deleteFromS3 } = require('document-verification-utility');
 
-**Request Body:**
-
-```json
-{
-  "name": "John Doe",
-  "dob": "15/06/1995",
-  "identityCardNumber": "1234 5678 9012",
-  "photoUrl": "https://aws-public-url/photo.jpg",
-  "identityUrls": [
-    "https://aws-public-url/id1.jpg",
-    "https://aws-public-url/id2.jpg"
-  ],
-  "type": "aadhar"
-}
+const result = await deleteFromS3('documents/file_xxx.pdf');
 ```
-
-**Success Response (200):**
-
-```json
-{
-  "isDocumentTypeMatched": true,
-  "isNameMatched": true,
-  "isDOBMatched": true,
-  "isIdentityCardNumberMatched": true,
-  "isFaceMatched": true,
-  "confidence": 97.8,
-  "isVerification": true,
-  "message": "Verification complete"
-}
-```
-
-**Partial Match Response (200):**
-
-```json
-{
-  "isDocumentTypeMatched": true,
-  "isNameMatched": true,
-  "isDOBMatched": false,
-  "isIdentityCardNumberMatched": true,
-  "isFaceMatched": true,
-  "confidence": 94.2,
-  "isVerification": false,
-  "message": "DOB did not match, but verification continued"
-}
-```
-
-**Error Response (400) - Document Type Mismatch:**
-
-```json
-{
-  "isDocumentTypeMatched": false,
-  "message": "aadhar not found"
-}
-```
-
-**Error Response (400) - Validation Error:**
-
-```json
-{
-  "error": "Validation Error",
-  "message": "dob is required for aadhar and passport types"
-}
-```
-
-Or:
-
-```json
-{
-  "error": "Validation Error",
-  "message": "identityCardNumber is required for aadhar and passport types"
-}
-```
-
-## Validation Rules
-
-- `name`: Required, non-empty string
-- `dob`: Required for `aadhar` and `passport` types, format: `DD/MM/YYYY`
-- `identityCardNumber`: Required for `aadhar` and `passport` types, non-empty string
-- `photoUrl`: Required, public AWS S3 URL or HTTP URL
-- `identityUrls`: Required, array of at least 1 URL
-- `type`: Required, must be one of: `aadhar`, `passport`, `other`
-
-## Processing Flow
-
-1. **File Download**: Downloads all images (photoUrl and identityUrls) to a local `files/` directory
-2. **Text Extraction**: Extracts text from all identity document images using AWS Textract
-3. **Document Type Validation**: Validates document type based on extracted text
-4. **Personal Info Matching**: Matches name, DOB, and identity card number (if applicable) from extracted text
-5. **Face Verification**: Compares user's photo with face in identity documents using AWS Rekognition
-6. **Cleanup**: Automatically deletes downloaded files after processing completes
-
-## Document Type Validation
-
-- **Aadhaar**: Checks for "unique identification authority" in extracted text
-- **Passport**: Checks for "republic of india" in extracted text
-- **Other**: Skips document type validation
 
 ## Verification Rules
 
 `isVerification` is `true` only if:
 - `isDocumentTypeMatched` is `true`
 - `isNameMatched` is `true`
-- `isDOBMatched` is `true` (for aadhar/passport)
-- `isIdentityCardNumberMatched` is `true` (for aadhar/passport)
+- `isDOBMatched` is `true` (for aadhaar/passport)
+- `isIdentityCardNumberFormatValid` is `true` (for aadhaar/passport)
+- `isIdentityCardNumberMatched` is `true` (for aadhaar/passport)
 - `isFaceMatched` is `true`
 
-For `other` document type, only `isDocumentTypeMatched`, `isNameMatched`, and `isFaceMatched` need to be `true`.
+## ID Number Format Validation
 
-## Logging
+- **Aadhaar**: Must be exactly 12 digits (spaces allowed)
+- **Passport**: Must be 8-9 alphanumeric characters
 
-Logs are written to:
-- Console (colored output)
-- `logs/combined.log` (all logs)
-- `logs/error.log` (errors only)
+## Document Type Validation
 
-Log levels: `error`, `warn`, `info`, `debug`
+- **Aadhaar**: Checks for "unique identification authority" in extracted text
+- **Passport**: Checks for "republic of india" in extracted text
 
-## Health Check
+## Processing Flow
 
-**GET** `/health`
+1. **File Download**: Downloads all images (photoUrl and identityUrls) from S3 or HTTP
+2. **Text Extraction**: Extracts text from all identity document images using AWS Textract
+3. **Document Type Validation**: Validates document type based on extracted text
+4. **ID Format Validation**: Validates ID number format
+5. **Personal Info Matching**: Matches name, DOB, and identity card number from extracted text
+6. **Face Verification**: Compares user's photo with face in identity documents using AWS Rekognition
+7. **Cleanup**: Automatically deletes downloaded files after processing completes
 
-Returns server status and timestamp.
+## Project Structure
 
-## Error Handling
-
-- Validation errors return HTTP 400
-- Document type mismatches return HTTP 400
-- Internal errors return HTTP 500
-- All errors are logged with structured logging
+```
+document-verification/
+├── index.js                    # CommonJS wrapper exports
+├── package.json
+├── README.md
+└── src/
+    ├── config/
+    │   └── index.js           # AWS configuration
+    ├── services/
+    │   ├── fileDownloadService.js    # HTTP file download
+    │   ├── s3DownloadService.js      # S3 file download
+    │   ├── s3UploadService.js        # S3 file upload
+    │   ├── textractService.js        # AWS Textract integration
+    │   ├── rekognitionService.js     # AWS Rekognition integration
+    │   └── verificationService.js    # Main verification logic
+    └── utils/
+        └── logger.js          # Winston logger
+```
 
 ## AWS Configuration
 
-The service uses AWS SDK v3 and supports:
+The utility uses AWS SDK v3 and supports:
 - Environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`)
 - AWS credentials file (`~/.aws/credentials`)
 - IAM role (when running on EC2/ECS/Lambda)

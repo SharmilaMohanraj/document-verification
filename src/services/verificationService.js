@@ -1,6 +1,7 @@
 import { AWSTextractService } from './textractService.js';
 import { AWSRekognitionService } from './rekognitionService.js';
 import { FileDownloadService } from './fileDownloadService.js';
+import { S3DownloadService } from './s3DownloadService.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -11,6 +12,53 @@ export class VerificationService {
     this.textractService = new AWSTextractService();
     this.rekognitionService = new AWSRekognitionService();
     this.fileDownloadService = new FileDownloadService();
+    this.s3DownloadService = new S3DownloadService();
+  }
+
+  /**
+   * Checks if URL is an S3 URL
+   * @param {string} url - URL to check
+   * @returns {boolean}
+   */
+  _isS3Url(url) {
+    return url.includes('s3.amazonaws.com') || url.includes('.s3.');
+  }
+
+  /**
+   * Downloads file from URL (S3 or HTTP)
+   * @param {string} url - File URL
+   * @param {string} filename - Optional filename
+   * @returns {Promise<string>} Local file path
+   */
+  async _downloadFile(url, filename = null) {
+    if (this._isS3Url(url)) {
+      return await this.s3DownloadService.downloadFromS3(url, filename);
+    } else {
+      return await this.fileDownloadService.downloadImage(url, filename);
+    }
+  }
+
+  /**
+   * Downloads multiple files from URLs (S3 or HTTP)
+   * @param {string[]} urls - Array of file URLs
+   * @returns {Promise<string[]>} Array of local file paths
+   */
+  async _downloadFiles(urls) {
+    const s3Urls = urls.filter(url => this._isS3Url(url));
+    const httpUrls = urls.filter(url => !this._isS3Url(url));
+
+    const downloadPromises = [];
+
+    if (s3Urls.length > 0) {
+      downloadPromises.push(this.s3DownloadService.downloadFromS3Multiple(s3Urls));
+    }
+
+    if (httpUrls.length > 0) {
+      downloadPromises.push(this.fileDownloadService.downloadImages(httpUrls));
+    }
+
+    const results = await Promise.all(downloadPromises);
+    return results.flat().filter(path => path !== null);
   }
 
   /**
@@ -23,10 +71,11 @@ export class VerificationService {
     logger.info('Validating document type', { documentType });
 
     switch (documentType) {
-      case 'aadhar':
-        const isAadhar = extractedText.includes('unique identification authority');
-        logger.info('Aadhar validation result', { isAadhar });
-        return isAadhar;
+      case 'aadhaar':
+      case 'aadhar': // Support both spellings for backward compatibility
+        const isAadhaar = extractedText.includes('unique identification authority');
+        logger.info('Aadhaar validation result', { isAadhaar });
+        return isAadhaar;
 
       case 'passport':
         const isPassport = extractedText.includes('republic of india');
@@ -57,21 +106,44 @@ export class VerificationService {
   }
 
   /**
+   * Formats date to DD/MM/YYYY string
+   * @param {Date|string} dob - Date of birth (Date object or ISO string)
+   * @returns {string} Formatted date string (DD/MM/YYYY)
+   */
+  _formatDOB(dob) {
+    let date;
+    if (dob instanceof Date) {
+      date = dob;
+    } else if (typeof dob === 'string') {
+      date = new Date(dob);
+    } else {
+      throw new Error('Invalid DOB format');
+    }
+
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+
+  /**
    * Checks if DOB exists in extracted text
    * @param {string} extractedText - Lowercase extracted text
-   * @param {string} dob - Date of birth in DD/MM/YYYY format
+   * @param {Date|string} dob - Date of birth (Date object or ISO string)
    * @returns {boolean} Whether DOB matches
    */
   _matchDOB(extractedText, dob) {
+    // Convert DOB to DD/MM/YYYY format
+    const dobString = this._formatDOB(dob);
+    
     // Try multiple date formats that might appear in documents
-    // Input format is DD/MM/YYYY
     const dateFormats = [
-      dob, // DD/MM/YYYY
-      dob.replace(/\//g, '-'), // DD-MM-YYYY
-      dob.split('/').reverse().join('-'), // YYYY-MM-DD
-      dob.split('/').reverse().join('/'), // YYYY/MM/DD
-      dob.replace(/\//g, ''), // DDMMYYYY
-      dob.split('/').reverse().join(''), // YYYYMMDD
+      dobString, // DD/MM/YYYY
+      dobString.replace(/\//g, '-'), // DD-MM-YYYY
+      dobString.split('/').reverse().join('-'), // YYYY-MM-DD
+      dobString.split('/').reverse().join('/'), // YYYY/MM/DD
+      dobString.replace(/\//g, ''), // DDMMYYYY
+      dobString.split('/').reverse().join(''), // YYYYMMDD
     ];
 
     // Check if any format exists in the extracted text
@@ -79,8 +151,46 @@ export class VerificationService {
       extractedText.includes(format.toLowerCase())
     );
 
-    logger.info('DOB matching result', { dob, isMatched });
+    logger.info('DOB matching result', { dob: dobString, isMatched });
     return isMatched;
+  }
+
+  /**
+   * Validates Aadhaar number format (12 digits, may have spaces)
+   * @param {string} aadhaarNumber - Aadhaar number
+   * @returns {boolean} Whether format is valid
+   */
+  _validateAadhaarFormat(aadhaarNumber) {
+    // Remove spaces and check if it's 12 digits
+    const cleaned = aadhaarNumber.replace(/\s+/g, '');
+    return /^\d{12}$/.test(cleaned);
+  }
+
+  /**
+   * Validates Passport number format (alphanumeric, 8-9 characters)
+   * @param {string} passportNumber - Passport number
+   * @returns {boolean} Whether format is valid
+   */
+  _validatePassportFormat(passportNumber) {
+    // Remove spaces and check format
+    const cleaned = passportNumber.replace(/\s+/g, '').toUpperCase();
+    // Indian passport format: typically 8-9 alphanumeric characters
+    return /^[A-Z0-9]{8,9}$/.test(cleaned);
+  }
+
+  /**
+   * Validates identity card number format based on type
+   * @param {string} identityCardNumber - Identity card number
+   * @param {string} idType - ID type (aadhaar or passport)
+   * @returns {boolean} Whether format is valid
+   */
+  _validateIdentityCardNumberFormat(identityCardNumber, idType) {
+    if (idType === 'aadhaar') {
+      return this._validateAadhaarFormat(identityCardNumber);
+    } else if (idType === 'passport') {
+      return this._validatePassportFormat(identityCardNumber);
+    }
+    return true; // For other types, skip format validation
   }
 
   /**
@@ -119,12 +229,12 @@ export class VerificationService {
     let downloadedFiles = [];
 
     try {
-      // Phase 0: Download all images to local files
+      // Phase 0: Download all images to local files (supports S3 and HTTP URLs)
       logger.info('Phase 0: Downloading images to local files');
       
       const [photoFilePath, identityFilePathsArray] = await Promise.all([
-        this.fileDownloadService.downloadImage(photoUrl, 'photo.jpg'),
-        this.fileDownloadService.downloadImages(identityUrls)
+        this._downloadFile(photoUrl, 'photo.jpg'),
+        this._downloadFiles(identityUrls)
       ]);
 
       const identityFilePaths = identityFilePathsArray.filter(path => path !== null);
@@ -146,11 +256,11 @@ export class VerificationService {
         logger.warn('Document type validation failed', { type });
         // Cleanup before returning
         if (downloadedFiles.length > 0) {
-          await this.fileDownloadService.deleteFiles(downloadedFiles);
+          await this.s3DownloadService.deleteFiles(downloadedFiles);
         }
         return {
           isDocumentTypeMatched: false,
-          message: type === 'aadhar' ? 'aadhar not found' : 'passport not found'
+          message: (type === 'aadhaar' || type === 'aadhar') ? 'aadhaar not found' : 'passport not found'
         };
       }
 
@@ -159,20 +269,31 @@ export class VerificationService {
       const isNameMatched = this._matchName(extractedText, name);
       let isDOBMatched = undefined;
       let isIdentityCardNumberMatched = undefined;
+      let isIdentityCardNumberFormatValid = undefined;
 
-      if (type === 'aadhar' || type === 'passport') {
+      if (type === 'aadhaar' || type === 'aadhar' || type === 'passport') {
+        // Validate ID number format
+        if (!identityCardNumber) {
+          logger.warn('Identity card number is required for aadhar/passport but not provided');
+          isIdentityCardNumberFormatValid = false;
+          isIdentityCardNumberMatched = false;
+        } else {
+          // First validate format
+          isIdentityCardNumberFormatValid = this._validateIdentityCardNumberFormat(identityCardNumber, type);
+          if (!isIdentityCardNumberFormatValid) {
+            logger.warn('Identity card number format is invalid', { type, identityCardNumber });
+            isIdentityCardNumberMatched = false;
+          } else {
+            // Then check if it matches in document
+            isIdentityCardNumberMatched = this._matchIdentityCardNumber(extractedText, identityCardNumber);
+          }
+        }
+
         if (!dob) {
           logger.warn('DOB is required for aadhar/passport but not provided');
           isDOBMatched = false;
         } else {
           isDOBMatched = this._matchDOB(extractedText, dob);
-        }
-
-        if (!identityCardNumber) {
-          logger.warn('Identity card number is required for aadhar/passport but not provided');
-          isIdentityCardNumberMatched = false;
-        } else {
-          isIdentityCardNumberMatched = this._matchIdentityCardNumber(extractedText, identityCardNumber);
         }
       }
 
@@ -207,6 +328,7 @@ export class VerificationService {
         isNameMatched,
         isDOBMatched,
         isIdentityCardNumberMatched,
+        isIdentityCardNumberFormatValid,
         isFaceMatched: faceResult.isFaceMatched,
         confidence: faceResult.confidence,
         isVerification,
@@ -232,7 +354,7 @@ export class VerificationService {
       // Cleanup: Delete downloaded files
       if (downloadedFiles.length > 0) {
         logger.info('Cleaning up downloaded files', { count: downloadedFiles.length });
-        await this.fileDownloadService.deleteFiles(downloadedFiles);
+        await this.s3DownloadService.deleteFiles(downloadedFiles);
       }
     }
   }

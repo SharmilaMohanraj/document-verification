@@ -1,5 +1,4 @@
 import winston from 'winston';
-import { mkdirSync } from 'fs';
 import { config } from '../config/index.js';
 
 const { combine, timestamp, printf, colorize, errors } = winston.format;
@@ -27,9 +26,10 @@ const logFormat = printf(({ level, message, timestamp, ...metadata }) => {
 
 /**
  * Logger instance with structured logging
+ * Console-only logging for utility usage
  */
 export const logger = winston.createLogger({
-  level: config.logLevel,
+  level: config.logLevel || process.env.LOG_LEVEL || 'info',
   format: combine(
     errors({ stack: true }),
     timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
@@ -41,22 +41,8 @@ export const logger = winston.createLogger({
         colorize(),
         logFormat
       )
-    }),
-    new winston.transports.File({
-      filename: 'logs/error.log',
-      level: 'error'
-    }),
-    new winston.transports.File({
-      filename: 'logs/combined.log'
     })
   ]
 });
-
-// Create logs directory if it doesn't exist
-try {
-  mkdirSync('logs', { recursive: true });
-} catch (error) {
-  // Directory might already exist
-}
 
 export default logger;
